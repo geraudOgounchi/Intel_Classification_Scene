@@ -1,7 +1,6 @@
 venv/
 __pycache__/
 *.pyc
-*.pth
 *.keras
 training_history.png
 *.zip
