@@ -15,7 +15,6 @@ from models.cnn import IntelCNN_PyTorch
 CLASSES         = ["buildings", "forest", "glacier", "mountain", "sea", "street"]
 IMG_SIZE        = 150
 PYTORCH_WEIGHTS = os.path.join(BASE_DIR, "geraud_model.pth")
-KERAS_WEIGHTS   = os.path.join(BASE_DIR, "geraud_model.keras")
 DEVICE          = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 app = Flask(__name__)
@@ -30,14 +29,8 @@ if os.path.exists(PYTORCH_WEIGHTS):
 else:
     print(f"⚠️  Weights not found: {PYTORCH_WEIGHTS}")
 
-# ── Load Keras model ──────────────────────────────────────────
+# ── Keras désactivé sur Render ────────────────────────────────
 keras_model = None
-if os.path.exists(KERAS_WEIGHTS):
-    import tensorflow as tf
-    keras_model = tf.keras.models.load_model(KERAS_WEIGHTS)
-    print("✅ Keras model loaded")
-else:
-    print(f"⚠️  Weights not found: {KERAS_WEIGHTS}")
 
 # ── Preprocessing ─────────────────────────────────────────────
 import torchvision.transforms as T
@@ -51,11 +44,6 @@ _torch_tf = T.Compose([
 def preprocess_torch(pil_img):
     return _torch_tf(pil_img.convert("RGB")).unsqueeze(0).to(DEVICE)
 
-def preprocess_keras(pil_img):
-    img = pil_img.convert("RGB").resize((IMG_SIZE, IMG_SIZE))
-    arr = np.array(img, dtype=np.float32) / 255.0
-    return np.expand_dims(arr, 0)
-
 # ── Routes ────────────────────────────────────────────────────
 @app.route("/")
 def index():
@@ -66,25 +54,16 @@ def predict():
     if "image" not in request.files:
         return jsonify({"error": "No image uploaded"}), 400
 
-    backend = request.form.get("backend", "PyTorch")
-    file    = request.files["image"]
-    img     = Image.open(io.BytesIO(file.read()))
+    file = request.files["image"]
+    img  = Image.open(io.BytesIO(file.read()))
 
     try:
-        if backend == "PyTorch":
-            if pytorch_model is None:
-                return jsonify({"error": "PyTorch model not loaded"}), 500
-            with torch.no_grad():
-                logits = pytorch_model(preprocess_torch(img))
-                probs  = torch.softmax(logits, dim=1).cpu().numpy()[0]
+        if pytorch_model is None:
+            return jsonify({"error": "PyTorch model not loaded"}), 500
 
-        elif backend == "Keras":
-            if keras_model is None:
-                return jsonify({"error": "Keras model not loaded"}), 500
-            probs = keras_model.predict(preprocess_keras(img), verbose=0)[0]
-
-        else:
-            return jsonify({"error": "Unknown backend"}), 400
+        with torch.no_grad():
+            logits = pytorch_model(preprocess_torch(img))
+            probs  = torch.softmax(logits, dim=1).cpu().numpy()[0]
 
         results = [
             {"class": cls, "confidence": round(float(p) * 100, 2)}
@@ -96,7 +75,7 @@ def predict():
             "prediction": results[0]["class"],
             "confidence": results[0]["confidence"],
             "all":        results,
-            "backend":    backend,
+            "backend":    "PyTorch",
         })
 
     except Exception as e:
@@ -106,9 +85,10 @@ def predict():
 def available_models():
     return jsonify({
         "PyTorch": pytorch_model is not None,
-        "Keras":   keras_model   is not None,
+        "Keras":   False,
     })
 
 # ── Run ───────────────────────────────────────────────────────
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
