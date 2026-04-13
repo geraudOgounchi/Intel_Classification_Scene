@@ -3,5 +3,4 @@ torch
 torchvision
 pillow
 numpy
-tensorflow
 gunicorn
